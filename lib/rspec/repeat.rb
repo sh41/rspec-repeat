@@ -18,8 +18,27 @@ module RSpec
     # - `exceptions` - if given, only retry exceptions from this list
     # - `clear_let` - when false, don't clear `let`'s
     #
-    def repeat(ex, count, options = {})
-      Repeater.new(count, options).run(ex, self)
+    # If a block is passed to `repeat`, it will be executed after a failure and before resetting for the next run.
+    # The block is passed:
+    #
+    # - `i` - the count of the current run through (0 indexed)
+    # - `ex` - the `RSpec::Core::Example::Procsy`
+    # - `current_example` - the current example
+    # - `ctx` - the current context
+    #
+    # For example, you can implement a wait between retries that grows with each failure:
+    #
+    #       around do |example|
+    #         repeat example, 10 do |i, _ex, _current_example, _ctx|
+    #           failure_count = (i + 1)
+    #           next if failure_count >= 10
+    #           warn "Example sleeping #{failure_count * 2} seconds"
+    #           sleep(failure_count * 2)
+    #         end
+    #       end
+
+    def repeat(ex, count, options = {}, &block)
+      Repeater.new(count, options).run(ex, self, &block)
     end
 
     # Much of this code is borrowed from:
@@ -45,8 +64,11 @@ module RSpec
           example.instance_variable_set :@exception, nil
           ex.run
           break if example.exception.nil?
-          break if !matches_exceptions?(exceptions, example.exception)
+          break unless matches_exceptions?(exceptions, example.exception)
           print_failure(i, example) if verbose
+          if block_given?
+            yield(i, ex, example, ctx)
+          end
           clear_memoize(ctx) if clear_let
           sleep wait if wait.to_i > 0
         end

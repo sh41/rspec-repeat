@@ -103,6 +103,50 @@ describe 'a stubborn test' do
 end
 ```
 
+### Running code before retries
+If a block is passed to `repeat`, it will be executed after a failure and before resetting for the next run.
+The block is passed 4 argu:
+
+- `i` - the count of the current run through (0 indexed)
+- `ex` - the [`RSpec::Core::Example::Procsy`](https://github.com/rspec/rspec-core/blob/1e661db5c5b431c0ee88a383e8e3767f02dccbfe/lib/rspec/core/example.rb#L331)
+- `current_example` - the current [`RSpec::Core::Example`](https://github.com/rspec/rspec-core/blob/1e661db5c5b431c0ee88a383e8e3767f02dccbfe/lib/rspec/core/example.rb#L44)
+- `ctx` - the current context/example group allowing access to let etc via [`RSpec::ExampleGroups`](https://github.com/rspec/rspec-core/blob/1e661db5c5b431c0ee88a383e8e3767f02dccbfe/lib/rspec/core/example_group.rb#L839)
+
+For example, you can implement a wait between retries that grows with each failure:
+```rb
+around do |example|
+    repeat example, 10 do |i, _ex, _current_example, _ctx|
+      failure_count = (i + 1)
+      next if failure_count >= 10
+      warn "Example sleeping #{failure_count * 2} seconds"
+      sleep(failure_count * 2)
+    end
+end
+```
+
+You can also access the context of the current test, but be careful changing state between tests!
+```rb
+require 'rspec/repeat'
+
+describe 'change lets to eventually pass a test' do
+  include RSpec::Repeat
+  
+  let(:value) { 99 }
+  let(:failed_attempts) { 0 }
+
+  around do |example|
+    repeat example, 100.times, clear_let: false do |i, _ex, _example, ctx|
+      ctx.send(:__memoized).instance_variable_get(:@memoized)[:value] = value - 1
+      ctx.send(:__memoized).instance_variable_get(:@memoized)[:failed_attempts] = i + 1
+    end
+  end
+
+  it 'works' do
+    expect(value).to eq(0)
+    expect(failed_attempts).to eq(99)
+  end 
+end
+```
 <br>
 
 ## Acknowledgement
